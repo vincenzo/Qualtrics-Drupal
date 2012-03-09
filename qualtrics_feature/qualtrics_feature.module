@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Qualtrics Feature feature.
+ */
+
+include_once('qualtrics_feature.features.inc');

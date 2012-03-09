@@ -1,0 +1,5 @@
+name = Qualtrics Embed Field
+description = An implementation of a field to embed a Qualtrics survey.
+package = Qualtrics
+core = 7.x
+dependencies[] = qualtrics

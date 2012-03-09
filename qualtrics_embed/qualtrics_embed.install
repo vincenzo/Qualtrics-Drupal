@@ -1,0 +1,17 @@
+<?php
+
+/**
+ * Implements hook_field_schema().
+ */
+function qualtrics_embed_field_schema($field) {
+  $columns = array(
+    'sid' => array('type' => 'varchar', 'length' => 50, 'not null' => FALSE),
+  );
+  $indexes = array(
+    'sid' => array('sid'),
+  );
+  return array(
+    'columns' => $columns,
+    'indexes' => $indexes,
+  );
+}

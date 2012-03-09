@@ -1,0 +1,191 @@
+<?php
+
+/**
+ * Implements hook_field_info().
+ *
+ * Provides the description of the field.
+ */
+function qualtrics_embed_field_info() {
+  return array(
+    // We name our field as the associative name of the array.
+    'field_qualtrics_survey' => array(
+      'label' => t('Qualtrics Survey Embed Field'),
+      'description' => t('Allows to embed a survey from a remote Qualtrics server.'),
+      'default_widget' => 'field_qualtrics_dropdown',
+      'default_formatter' => 'field_qualtrics_iframe',
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_is_empty().
+ */
+function qualtrics_embed_field_is_empty($item, $field) {
+  return empty($item['sid']);
+}
+
+/**
+ * Implements hook_field_formatter_info().
+ */
+function qualtrics_embed_field_formatter_info() {
+  return array(
+    // This formatter just displays the hex value in the color indicated.
+    'field_qualtrics_iframe' => array(
+      'label' => t('Qualtrics iframe-embedding'),
+      'field types' => array('field_qualtrics_survey'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ */
+function qualtrics_embed_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  $element = array();
+  switch ($display['type']) {
+    // This formatter adds css to the page changing the '.region-content' area's
+    // background color. If there are many fields, the last one will win.
+    case 'field_qualtrics_iframe':
+      foreach ($items as $delta => $item) {
+        $theme_vars = array(
+          'survey' => array('SID' => $item['sid'],),
+          'width' => $instance['settings']['qualtrics_embed_width_instance'],
+          'height' => $instance['settings']['qualtrics_embed_height_instance'],
+        );
+        switch ($instance['settings']['qualtrics_embed_append_username_instance']) {
+          case 'system':
+            if (variable_get('qualtrics_embed_username', 'no') === 'no') {
+              break;
+            }
+          case 'yes':
+            global $user;
+            $theme_vars['survey']['username'] = $user->name;
+            break;
+        }
+        $element[$delta] = array(
+          '#markup' => theme('qualtrics_embed_survey', $theme_vars),
+        );
+      }
+      break;
+  }
+  return $element;
+}
+
+/**
+ * Implements hook_field_widget_info().
+ */
+function qualtrics_embed_field_widget_info() {
+  return array(
+    'field_qualtrics_dropdown' => array(
+      'label' => t('Qualtrics Survey Dropdown'),
+      'field types' => array('field_qualtrics_survey'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_widget_form().
+ */
+function qualtrics_embed_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  $value = isset($items[$delta]['sid']) ? $items[$delta]['sid'] : '';
+
+  $widget = $element;
+  $widget['#delta'] = $delta;
+
+  $surveys = qualtrics_get_surveys();
+  $widget_options = array();
+  foreach ($surveys as $survey_id => $survey_info) {
+    $widget_options[$survey_id] = $survey_info['surveyname'];
+  }
+
+  switch ($instance['widget']['type']) {
+    case 'field_qualtrics_dropdown':
+      $widget += array(
+        '#type' => 'select',
+        '#default_value' => $value,
+        '#options' => $widget_options,
+      );
+      break;
+  }
+
+  $element['sid'] = $widget;
+  return $element;
+}
+
+/**
+ * Implements hook_field_settings_form().
+ */
+function qualtrics_embed_field_settings_form($field, $instance, $has_data) {
+  $settings = $field['settings'];
+  $form['qualtrics_embed_width'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Survey iframe width'),
+    '#default_value' => isset($settings['qualtrics_embed_width']) ? $settings['qualtrics_embed_width'] : NULL,
+    '#required' => TRUE,
+    '#element_validate' => array('element_validate_integer_positive'),
+    '#description' => t('The width for the iframe.'),
+  );
+  $form['qualtrics_embed_height'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Survey iframe height'),
+    '#default_value' => isset($settings['qualtrics_embed_height']) ? $settings['qualtrics_embed_height'] : NULL,
+    '#required' => TRUE,
+    '#element_validate' => array('element_validate_integer_positive'),
+    '#description' => t('The height for the iframe.'),
+  );
+  $form['qualtrics_embed_append_username'] = array(
+    '#type' => 'radios',
+    '#title' => t('Pass username as parameter'),
+    '#default_value' => isset($settings['qualtrics_append_username']) ? $settings['qualtrics_append_username'] : NULL,
+    '#required' => TRUE,
+    '#options' => array(
+      'no' => t('No'), 'yes' => t('Yes'),
+      'system' => t('Inherit from !settings', array('!settings' => l('system wide settings', 'admin/config/qualtrics')))
+    ),
+    '#description' => t("Choose whether to pass the current user's name to the survey. Your survey must be configured on Qualtrics to accept the parameter 'username'."),
+  );
+  return $form;
+}
+
+/**
+ * Implements hook_field_settings_form().
+ */
+function qualtrics_embed_field_instance_settings_form($field, $instance) {
+  $instance_settings = $instance['settings'];
+  $field_settings = $field['settings'];
+  $form['qualtrics_embed_width_instance'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Survey iframe width'),
+    '#default_value' => !empty($instance_settings['qualtrics_embed_width_instance']) ?
+        $instance_settings['qualtrics_embed_width_instance'] :
+        $field_settings['qualtrics_embed_width'],
+    '#required' => TRUE,
+    '#element_validate' => array('element_validate_integer_positive'),
+    '#description' => t('The width for the iframe.'),
+  );
+  $form['qualtrics_embed_height_instance'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Survey iframe height'),
+    '#default_value' => !empty($instance_settings['qualtrics_embed_height_instance']) ?
+        $instance_settings['qualtrics_embed_height_instance'] :
+        $field_settings['qualtrics_embed_height'],
+    '#required' => TRUE,
+    '#element_validate' => array('element_validate_integer_positive'),
+    '#description' => t('The height for the iframe.'),
+  );
+  $form['qualtrics_embed_append_username_instance'] = array(
+    '#type' => 'radios',
+    '#title' => t('Pass username as parameter'),
+    '#default_value' => !empty($instance_settings['qualtrics_embed_append_username_instance']) ?
+            $instance_settings['qualtrics_embed_append_username_instance'] :
+            $field_settings['qualtrics_embed_append_username'],
+    '#required' => TRUE,
+    '#options' => array(
+      'no' => t('No'), 'yes' => t('Yes'),
+      'system' => t('Inherit from !settings', array('!settings' => l('system wide settings', 'admin/config/qualtrics')))
+    ),
+    '#description' => t("Choose whether to pass the current user's name to the survey. Your survey must be configured on Qualtrics to accept the parameter 'username'."),
+  );
+  return $form;
+}
+

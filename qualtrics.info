@@ -1,0 +1,7 @@
+name = Qualtrics
+description = Integration with Qualtrics survey system.
+package = Qualtrics
+core = 7.x
+configure = admin/config/qualtrics
+files[] = qualtrics.admin.inc
+files[] = qualtrics.module

@@ -1,0 +1,11 @@
+NOTE
+====
+
+In order for a survey to accept the username parameter, it must be configured so that it has an embedded data called "username" (without quotes). To add a new embedded data name "username" to your survey: 
+
+	- Edit the survey
+   	- Go to Survey Flow
+   	- Click Add new element at the bottom 
+   	- Click Add new embedded data
+   	- Call it username
+   	- Save

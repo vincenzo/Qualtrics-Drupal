@@ -1,0 +1,258 @@
+<?php
+
+define('QUALTRICS_BASE_URL', 'https://us2.qualtrics.com/Server/RestApi.php');
+define('QUALTRICS_USERNAME', 'username');
+define('QUALTRICS_PASSWORD', 'passsword');
+define('QUALTRICS_EMBED_URL', 'http://us2.qualtrics.com/SE/');
+
+/**
+ * Helper function to invoke a Qualtrics REST API.
+ *
+ * @param string $api
+ *  The API name to invoke.
+ * @param array $params
+ *  Associative array storing the parameters to be passed along with the request.
+ * @return object
+ *  The output of the request as per drupal_http_request()'s return value.
+ */
+function _qualtrics_invoke($api, $params = array()) {
+
+  $default_params = array(
+    'Request' => $api,
+    'User' => variable_get('qualtrics_username', QUALTRICS_USERNAME),
+    'Password' => variable_get('qualtrics_password', QUALTRICS_PASSWORD),
+  );
+
+  $params = array_merge($params, $default_params);
+
+  $url = url(variable_get('qualtrics_base_url', QUALTRICS_BASE_URL), array('query' => $params));
+
+  return drupal_http_request($url);
+}
+
+/**
+ * Retrieving the list of surveys from Qualtrics.
+ *
+ * @return array
+ *  List of surveys in array format.
+ */
+function qualtrics_get_surveys() {
+  $surveys = _qualtrics_invoke('getSurveys');
+
+  $parser = new XMLReader();
+  $parser->xml($surveys->data);
+
+  $surveys_array = array();
+  $survey = array();
+  while ($parser->read()) {
+    if ($parser->nodeType === XMLReader::ELEMENT) {
+      switch ($parser->name) {
+        case 'element':
+          $survey = array();
+          break;
+        case 'XML':
+        case 'Surveys':
+          continue;
+        case 'SurveyID':
+        case 'SurveyName':
+        case 'SurveyDescription':
+        case 'SurveyStatus':
+        case 'SurveyCreationDate':
+        case 'LastModified':
+          $survey[strtolower($parser->name)] = $parser->readString();
+          break;
+      }
+    }
+
+    if ($parser->nodeType === XMLReader::END_ELEMENT && $parser->name == 'element') {
+      $surveys_array[$survey['surveyid']] = $survey;
+    }
+  }
+
+  return $surveys_array;
+}
+
+/**
+ * Implementation of getSurveyName Qualtrics API.
+ *
+ * @param $survey_id
+ *  The ID of the Survey to retrieve information for.
+ * @return array
+ *  Survey info in array format.
+ */
+function qualtrics_get_survey_info($survey_id) {
+  $survey = _qualtrics_invoke('getSurveyName', array('SurveyID' => $survey_id));
+
+  $parser = new XMLReader();
+  $parser->xml($survey->data);
+
+  $survey = array();
+  while ($parser->read()) {
+    if ($parser->nodeType === XMLReader::ELEMENT) {
+      $content = $parser->readString();
+      if ($content) {
+        $survey[strtolower($parser->name)] = $content;
+      }
+    }
+  }
+
+  return $survey;
+}
+
+/**
+ * Implementation of hook_permission().
+ * @return array
+ */
+function qualtrics_permission() {
+  return array(
+    'access qualtrics survey' => array(
+      'title' => t('Access a Qualtrics survey'),
+      'description' => t('Allow users to access a qualtrics survey.'),
+    ),
+    'administer qualtrics settings' => array(
+      'title' => t('Administer Qualtrics Settings'),
+      'description' => t('Allow a user, usually an admin, to configure the settings for the Qualtrics module.'),
+    ),
+  );
+}
+
+/**
+ * Implementation of hook_menu().
+ *
+ * @return array
+ *  Menu items.
+ */
+function qualtrics_menu() {
+
+  $items['qualtrics/survey/%'] = array(
+    'page callback' => 'qualtrics_survey_page',
+    'page arguments' => array(2),
+    'access arguments' => array('access qualtrics survey'),
+  );
+
+  $items['qualtrics/checksurvey/%'] = array(
+    'page callback' => 'qualtrics_check_survey',
+    'page arguments' => array(2),
+    'access arguments' => array('access qualtrics survey'),
+  );
+
+  $items['admin/config/qualtrics'] = array(
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('qualtrics_config_settings'),
+    'access arguments' => array('administer qualtrics settings'),
+    'title' => 'Qualtrics settings',
+    'description' => 'Settings for the third-party survey embedding from Qualtrics.',
+    'file' => 'qualtrics.admin.inc'
+  );
+
+  return $items;
+}
+
+/**
+ * Callback to check whether a survey has been submitted by the current user.
+ * @param $survey_id
+ *  The Survey ID.
+ */
+function qualtrics_check_survey($survey_id) {
+  // Invoke getResponseData API.
+  $data = _qualtrics_invoke('getResponseData', array('SurveyID' => $survey_id, 'Format' => 'XML'));
+
+  $parser = new XMLReader();
+  $parser->xml($data->data);
+
+  $finished = 0;
+  global $user;
+
+  while ($parser->read()) {
+    if ($parser->nodeType === XMLReader::ELEMENT) {
+      switch ($parser->name) {
+        case 'Finished':
+          $finished = $parser->readString();
+          break;
+        case 'username':
+          
+          if ($user->name == $parser->readString()) {
+            print $finished;
+            exit;
+          }
+          else {
+            $finished = 0;
+          }
+          break;
+      }
+    }
+  }
+
+  print $finished;
+  exit;
+}
+
+/**
+ * Page callback for loading a survey page.
+ *
+ * @param $survey_id
+ *  ID of the survey to be loaded.
+ * @return string
+ *  The page content.
+ */
+function qualtrics_survey_page($survey_id) {
+  $survey = qualtrics_get_survey_info($survey_id);
+  global $user;
+
+  drupal_set_title($survey['surveyname']);
+  if ($survey['surveystatus'] == 'Active') {
+    return theme('qualtrics_embed_survey', array(
+      'survey' => array(
+        'SID' => $survey_id, 'username' => $user->name, 'uid' => $user->uid
+      ), 'width' => 800, 'height' => 600
+    ));
+  }
+  else {
+    return t('This survey is inactive.');
+  }
+}
+
+/**
+ * Implementation of hook_theme().
+ *
+ * @param $existing
+ * @param $type
+ * @param $theme
+ * @param $path
+ * @return array
+ */
+function qualtrics_theme($existing, $type, $theme, $path) {
+  return array(
+    'qualtrics_embed_survey' => array(
+      'variables' => array('survey' => NULL, 'width' => NULL, 'height' => NULL),
+    ),
+  );
+}
+
+/**
+ * Theme function to create the HTML code required to embed a Qualtrics survey.
+ *
+ * @param $vars
+ *  Theme function vars.
+ * @return string
+ *  The rendered HTML.
+ */
+function theme_qualtrics_embed_survey($vars) {
+  $survey_params = $vars['survey'];
+
+  $width = isset($vars['width']) ? 'width="' . $vars['width'] . '"' : NULL;
+  $height = isset($vars['height']) ? 'height="' . $vars['height'] . '"' : NULL;
+
+  $iframe_url = url(variable_get('qualtrics_embed_url', QUALTRICS_EMBED_URL),
+    array(
+      'query' => $survey_params,
+      'absolute' => TRUE,
+      'external' => TRUE,
+      'https' => variable_get('qualtrics_secure_embed', FALSE)
+    ));
+
+  $iframe = <<<IFRAME
+<iframe src="${iframe_url}" $height $width></iframe>
+IFRAME;
+  return $iframe;
+}
